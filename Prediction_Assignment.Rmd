@@ -1,0 +1,163 @@
+---
+title: 'Practical Machine Learning: Prediction Assignment'
+author: " By: Adji Fatou Diagne"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information on the data is available from the website
+[here.](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset.).
+
+## Data
+
+The training data for this project are available [here.](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available [here.](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+The data for this project come from this [source.](http://groupware.les.inf.puc-rio.br/har) with full citation of data is as follows.
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+In this project, I will predict as they did in the exercise on the aforementioned website.
+
+## Part 1: Loading, Cleaning, and Exploring the Data
+
+See code notes describing each step in the process
+```{r}
+## download necessary packages
+library(caret)
+library(e1071)
+library(rpart)
+library(randomForest)
+set.seed(1234)
+#load datasets from urls
+library(data.table) 
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl, destfile = "train.csv")
+Train_data <- read.csv("train.csv")
+
+library(data.table) 
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl, destfile = "test.csv")
+Test_data <- read.csv ("test.csv")
+```
+
+
+```{r}
+inTrain <- createDataPartition(Train_data$classe, p=0.7, list=FALSE)
+Train_set <- Train_data[inTrain, ]
+Test_set <- Train_data[-inTrain, ]
+dim(Train_data)
+```
+
+```{r}
+dim(Test_set)
+```
+```{r}
+#remove variables with Nearly Zero Variance
+NZV <- nearZeroVar(Train_set)
+Train_set <- Train_set[, -NZV]
+Test_set <- Test_set[, -NZV]
+dim(Train_set)
+```
+
+```{r}
+#remove all missing values
+Train_set <- Train_set[, colSums(is.na(Train_set)) == 0]
+Test_set <- Test_set[, colSums(is.na(Test_set)) == 0]
+dim(Train_set)
+dim(Test_set)
+```
+```{r}
+#summary(Train_clean)
+#remove identification only variables columns 1-7, these variables are unrelated to our variable of interest classe
+Train_set <- Train_set[, -(1:7)]
+Test_set <- Test_set[, -(1:7)]
+dim(Train_set)
+```
+```{r}
+dim(Test_set)
+```
+
+```{r}
+table(Train_set$classe)
+```
+
+## Part 2: Prediction Analysis
+
+We can perform classification methods using random forest and a decision tree algorithm from the caret package for our prediction models. In doing so, we build a 3-fold cross validation model to use for our classification fits.
+
+```{r}
+set.seed(12345)
+#fit CV model
+CV_model <- trainControl(method="cv", number=3, verboseIter=FALSE)
+#fit Random Forest model
+RF_model <- train(classe ~ ., data=Train_set, method="rf",
+                          trControl=CV_model)
+RF_model$finalModel
+```
+```{r}
+#predict random forest model
+predict_RF <- predict(RF_model, newdata=Test_set)
+confMatrix_RF <- confusionMatrix(factor(predict_RF), factor(Test_set$classe))
+confMatrix_RF
+```
+
+The confusion matrix accuracy is 0.9956 for the Random Forest model which is pretty good for our production. The plot below provides a visual of the prediction outcome.
+```{r}
+#plot confusion matrix accuracy 
+plot(confMatrix_RF$table, col = blues9, 
+     main = paste("Random Forest Classification Accuracy =",
+                  round(confMatrix_RF$overall['Accuracy'], 4)))
+```
+
+Next, we will predict using a Decision Tree model on the training dataset.
+
+```{r}
+#fit decision tree model
+set.seed(12345)
+Tree_model <- rpart(classe ~ ., data=Train_set, method="class")
+```
+
+
+```{r}
+#predict classification tree model
+predict_Tree <- predict(Tree_model, newdata=Test_set, type="class")
+confMatrix_Tree <- confusionMatrix(factor(predict_Tree), factor(Test_set$classe))
+confMatrix_Tree
+```
+
+
+```{r}
+#plot confusion matrix results to test performance
+plot(confMatrix_Tree$table, col = topo.colors(10), 
+     main = paste("Classification Tree Accuracy =",
+                  round(confMatrix_Tree$overall['Accuracy'], 4)))
+```
+
+## Final Results of Prediction and Conclusion
+
+It appears from the results above that the Random Forest model has the best accuracy for the testing dataset so we will predict as follow;
+
+```{r}
+#predict results for 20 different test cases (test dataset)
+predict_results <- predict(RF_model, newdata=Test_data)
+#print prediction results
+predict_results
+```
+
+
+
+
+
